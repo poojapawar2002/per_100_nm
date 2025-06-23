@@ -8,7 +8,7 @@ import pandas as pd
 
 st.set_page_config(layout="wide")
 
-df = pd.read_csv("../Data/autolog_complete_input_ideal_power_foc_7000series_except1004.csv")
+df = pd.read_csv("autolog_complete_input_ideal_power_foc_7000series_except1004.csv")
 
 df["ideal_foc"] = df["ideal_foc_hr"]
 
