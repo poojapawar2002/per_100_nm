@@ -25,9 +25,11 @@ vessel_names = {
     9967445: "CARINA"
 }
 
-df = pd.read_csv("autolog_complete_input_ideal_power_foc_7000series_except1004.csv")
+df = pd.read_csv("Updated_autolog_complete_input_ideal_power_foc_7000series_except1004.csv")
 
 df = df[df["IMO"]!=9967457]
+
+df = df[df['ideal_power'] > 0]
 
 df["ideal_foc"] = df["ideal_foc_hr"]
 
