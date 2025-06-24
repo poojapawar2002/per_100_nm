@@ -27,7 +27,7 @@ vessel_names = {
 
 df = pd.read_csv("Updated_autolog_complete_input_ideal_power_foc_7000series_except1004.csv")
 
-additional_vessel_df = pd.read_csv("../Data/inputfiles/autolog_input_with_dist_1004.csv")
+additional_vessel_df = pd.read_csv("autolog_input_with_dist_1004.csv")
 
 additional_vessel_df["StartDateUTC"] = pd.to_datetime(additional_vessel_df["StartDateUTC"], format="%d-%m-%Y %H:%M")
 additional_vessel_df["EndDateUTC"] = pd.to_datetime(additional_vessel_df["EndDateUTC"], format="%d-%m-%Y %H:%M")
@@ -425,7 +425,7 @@ if all_sections_data:
                 current_section += 1
                 section_start_idx = voyage_df.index.get_loc(i) + 1
         
-        # # Handle incomplete last section
+        # Handle incomplete last section
         # if section_start_idx < len(voyage_df):
         #     remaining_df = voyage_df.iloc[section_start_idx:]
         #     if len(remaining_df) > 0:
