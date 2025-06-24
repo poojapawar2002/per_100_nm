@@ -27,6 +27,12 @@ vessel_names = {
 
 df = pd.read_csv("Updated_autolog_complete_input_ideal_power_foc_7000series_except1004.csv")
 
+additional_vessel_df = pd.read_csv("../Data/inputfiles/autolog_input_with_dist_1004.csv")
+
+additional_vessel_df["StartDateUTC"] = pd.to_datetime(additional_vessel_df["StartDateUTC"], format="%d-%m-%Y %H:%M")
+additional_vessel_df["EndDateUTC"] = pd.to_datetime(additional_vessel_df["EndDateUTC"], format="%d-%m-%Y %H:%M")
+additional_vessel_df['MeanDraft'] = (additional_vessel_df['DraftAftTele'] + additional_vessel_df['DraftFwdTele']) / 2
+
 df = df[df["IMO"]!=9967457]
 
 df = df[df['ideal_power'] > 0]
@@ -249,6 +255,13 @@ df = df[
     (df['TrueWindSpeedWP'] >= wind_min) & (df['TrueWindSpeedWP'] <= wind_max)
 ].copy()
 
+additional_vessel_df = additional_vessel_df[
+    (additional_vessel_df['MeanDraft'] >= draft_min) & (additional_vessel_df['MeanDraft'] <= draft_max) &
+    (additional_vessel_df['SpeedOG'] >= speedog_min) & (additional_vessel_df['SpeedOG'] <= speedog_max) &
+    (additional_vessel_df['SpeedTW'] >= speedtw_min) & (additional_vessel_df['SpeedTW'] <= speedtw_max) &
+    (additional_vessel_df['TrueWindSpeedWP'] >= wind_min) & (additional_vessel_df['TrueWindSpeedWP'] <= wind_max)
+].copy()
+
 # Define 8 distinct colors for the vessels (you can change these)
 # vessel_colors = [
 #     '#1f77b4',  # muted blue
@@ -358,10 +371,79 @@ for vessel_idx, imo in enumerate(imos):
                 all_sections_data.append(metrics)
 
 # Create graphs if we have data
+# Create graphs if we have data
 if all_sections_data:
     # Convert to DataFrame
     graph_df = pd.DataFrame(all_sections_data)
-    filtered_df = graph_df
+    
+    # Process additional vessel data (NEW SECTION)
+    additional_sections = []
+    
+    # Get voyage intervals for additional vessel
+    additional_voyages = voyage_dict.get(9967457, [])
+    
+    for voyage_idx, (start, end) in enumerate(additional_voyages):
+        # Filter data within voyage time range
+        voyage_df = additional_vessel_df[
+            (additional_vessel_df['StartDateUTC'] >= start) & 
+            (additional_vessel_df['EndDateUTC'] <= end)
+        ].copy().sort_values('StartDateUTC')
+        
+        if len(voyage_df) == 0:
+            continue
+            
+        # Calculate cumulative distance
+        voyage_df['CumulativeDistanceOGAct'] = voyage_df['DistanceOGAct'].cumsum()
+        
+        # Create sections (same logic as main vessels)
+        current_section = 1
+        section_start_idx = 0
+        
+        for i, row in voyage_df.iterrows():
+            if row['CumulativeDistanceOGAct'] >= (current_section * 100):
+                section_df = voyage_df.iloc[section_start_idx:voyage_df.index.get_loc(i)+1]
+                
+                metrics = {
+                    "vessel_imo": 9967457,
+                    "vessel_name": vessel_names[9967457],
+                    "voyage_num": voyage_idx + 1,
+                    "section_mid_time": section_df['StartDateUTC'].iloc[0] + (section_df['EndDateUTC'].iloc[-1] - section_df['StartDateUTC'].iloc[0])/2,
+                    "section_start_time": section_df['StartDateUTC'].iloc[0],
+                    "section_end_time": section_df['EndDateUTC'].iloc[-1],
+                    "MEFuelMassCons_actual": (section_df['MEFuelMassCons']/1000).sum(),
+                    "MEFuelMassCons_ideal": np.nan,
+                    "Power_actual": (section_df['ME1ShaftPower'] * section_df["ME1RunningHoursMinute"]).sum() / section_df["ME1RunningHoursMinute"].sum(),
+                    "Power_ideal": np.nan,
+                    "section_num": current_section,
+                    "avg_draft": section_df["MeanDraft"].mean(),
+                    "avg_speedog": section_df['SpeedOG'].mean(),
+                    "avg_speedtw": np.nan,
+                    "avg_wind": section_df['TrueWindSpeedWP'].mean()
+                }
+                additional_sections.append(metrics)
+                
+                current_section += 1
+                section_start_idx = voyage_df.index.get_loc(i) + 1
+        
+        # # Handle incomplete last section
+        # if section_start_idx < len(voyage_df):
+        #     remaining_df = voyage_df.iloc[section_start_idx:]
+        #     if len(remaining_df) > 0:
+        #         metrics = {
+        #             # ... same fields as above ...
+        #             "section_num": current_section,
+        #             # Scale values to 100nm if needed
+        #             "MEFuelMassCons_actual": (remaining_df['MEFuelMassCons']/1000).sum() * (100/remaining_df['DistanceOGAct'].sum()) if remaining_df['DistanceOGAct'].sum() > 0 else 0,
+        #             # ... other metrics ...
+        #         }
+        #         additional_sections.append(metrics)
+    
+    # Combine with main data
+    combined_df = pd.concat([graph_df, pd.DataFrame(additional_sections)])
+    filtered_df = combined_df
+    
+    # REST OF YOUR EXISTING GRAPHING CODE CONTINUES HERE
+    # (th
        
     if len(filtered_df) > 0:
         # Create custom labels for hover and annotations
@@ -391,7 +473,8 @@ if all_sections_data:
     ("#00B159", "#70E6B1"),  # Emerald
     ("#F28500", "#FFC266"),  # Pumpkin
     ("#8E44AD", "#D7BDE2"),  # Amethyst
-    ("#2C3E50", "#95A5A6")   # Midnight Blue (with Silver)
+    ("#2C3E50", "#95A5A6"),
+    ("#03402A","#469777"),  # Midnight Blue (with Silver)
 ]
 
 
@@ -433,11 +516,13 @@ if all_sections_data:
                 z_actual = np.polyfit(x_numeric, vessel_data['MEFuelMassCons_actual'], 1)
                 p_actual = np.poly1d(z_actual)
                 trendline_actual = p_actual(x_numeric)
+
+                if vessel != 9967457:
                 
-                # Calculate linear trendline for ideal FOC
-                z_ideal = np.polyfit(x_numeric, vessel_data['MEFuelMassCons_ideal'], 1)
-                p_ideal = np.poly1d(z_ideal)
-                trendline_ideal = p_ideal(x_numeric)
+                    # Calculate linear trendline for ideal FOC
+                    z_ideal = np.polyfit(x_numeric, vessel_data['MEFuelMassCons_ideal'], 1)
+                    p_ideal = np.poly1d(z_ideal)
+                    trendline_ideal = p_ideal(x_numeric)
             
             
             # Actual FOC data points
@@ -467,32 +552,33 @@ if all_sections_data:
                 opacity=0.8
             ))
 
-            # Ideal FOC data points
-            fig1.add_trace(go.Scatter(
-                x=vessel_data['section_mid_time'],
-                y=vessel_data['MEFuelMassCons_ideal'],
-                mode='markers',
-                name=f'{vessel_name} - Ideal FOC',
-                line=dict(color=colors['ideal_point'], width=2, dash='dash'),  # Modified
-                marker=dict(color=colors['ideal_point'], size=8, symbol='diamond'),  # Modified
-                hovertemplate='%{customdata}<br>Ideal FOC: %{y:.2f} MT<extra></extra>',
-                customdata=vessel_data['hover_text'],
-                legendgroup=f'vessel_{vessel}',
-                showlegend=True
-            ))
+            if vessel != 9967457:
+                # Ideal FOC data points
+                fig1.add_trace(go.Scatter(
+                    x=vessel_data['section_mid_time'],
+                    y=vessel_data['MEFuelMassCons_ideal'],
+                    mode='markers',
+                    name=f'{vessel_name} - Ideal FOC',
+                    line=dict(color=colors['ideal_point'], width=2, dash='dash'),  # Modified
+                    marker=dict(color=colors['ideal_point'], size=8, symbol='diamond'),  # Modified
+                    hovertemplate='%{customdata}<br>Ideal FOC: %{y:.2f} MT<extra></extra>',
+                    customdata=vessel_data['hover_text'],
+                    legendgroup=f'vessel_{vessel}',
+                    showlegend=True
+                ))
 
-            # Ideal FOC trendline
-            fig1.add_trace(go.Scatter(
-                x=vessel_data['section_mid_time'],
-                y=trendline_ideal,
-                mode='lines',
-                name=f'{vessel_name} - Ideal Trend',
-                line=dict(color=colors['ideal_trend'], width=3),  # Modified
-                hovertemplate='Ideal FOC Trend: %{y:.2f} MT<extra></extra>',
-                legendgroup=f'vessel_{vessel}',
-                showlegend=True,
-                opacity=0.8
-            ))
+                # Ideal FOC trendline
+                fig1.add_trace(go.Scatter(
+                    x=vessel_data['section_mid_time'],
+                    y=trendline_ideal,
+                    mode='lines',
+                    name=f'{vessel_name} - Ideal Trend',
+                    line=dict(color=colors['ideal_trend'], width=3),  # Modified
+                    hovertemplate='Ideal FOC Trend: %{y:.2f} MT<extra></extra>',
+                    legendgroup=f'vessel_{vessel}',
+                    showlegend=True,
+                    opacity=0.8
+                ))
         
         fig1.update_layout(
             title='Fuel Consumption Over Time - All Vessels',
@@ -523,11 +609,13 @@ if all_sections_data:
                 z_actual = np.polyfit(x_numeric, vessel_data['Power_actual'], 1)
                 p_actual = np.poly1d(z_actual)
                 trendline_actual = p_actual(x_numeric)
+
+                if  vessel != 9967457:
                 
-                # Calculate linear trendline for ideal Power
-                z_ideal = np.polyfit(x_numeric, vessel_data['Power_ideal'], 1)
-                p_ideal = np.poly1d(z_ideal)
-                trendline_ideal = p_ideal(x_numeric)
+                    # Calculate linear trendline for ideal Power
+                    z_ideal = np.polyfit(x_numeric, vessel_data['Power_ideal'], 1)
+                    p_ideal = np.poly1d(z_ideal)
+                    trendline_ideal = p_ideal(x_numeric)
             
             # Actual Power data points
             
@@ -557,32 +645,34 @@ if all_sections_data:
                 opacity=0.8
             ))
 
-            # Ideal Power data points
-            fig2.add_trace(go.Scatter(
-                x=vessel_data['section_mid_time'],
-                y=vessel_data['Power_ideal'],
-                mode='markers',
-                name=f'{vessel_name} - Ideal Power',
-                line=dict(color=colors['ideal_point'], width=2, dash='dash'),  # Modified
-                marker=dict(color=colors['ideal_point'], size=8, symbol='diamond'),  # Modified
-                hovertemplate='%{customdata}<br>Ideal Power: %{y:.2f} kW<extra></extra>',
-                customdata=vessel_data['hover_text'],
-                legendgroup=f'vessel_{vessel}',
-                showlegend=True
-            ))
+            if vessel != 9967457:
 
-            # Ideal Power trendline
-            fig2.add_trace(go.Scatter(
-                x=vessel_data['section_mid_time'],
-                y=trendline_ideal,
-                mode='lines',
-                name=f'{vessel_name} - Ideal Trend',
-                line=dict(color=colors['ideal_trend'], width=3),  # Modified
-                hovertemplate='Ideal Power Trend: %{y:.2f} kW<extra></extra>',
-                legendgroup=f'vessel_{vessel}',
-                showlegend=True,
-                opacity=0.8
-            ))
+                # Ideal Power data points
+                fig2.add_trace(go.Scatter(
+                    x=vessel_data['section_mid_time'],
+                    y=vessel_data['Power_ideal'],
+                    mode='markers',
+                    name=f'{vessel_name} - Ideal Power',
+                    line=dict(color=colors['ideal_point'], width=2, dash='dash'),  # Modified
+                    marker=dict(color=colors['ideal_point'], size=8, symbol='diamond'),  # Modified
+                    hovertemplate='%{customdata}<br>Ideal Power: %{y:.2f} kW<extra></extra>',
+                    customdata=vessel_data['hover_text'],
+                    legendgroup=f'vessel_{vessel}',
+                    showlegend=True
+                ))
+
+                # Ideal Power trendline
+                fig2.add_trace(go.Scatter(
+                    x=vessel_data['section_mid_time'],
+                    y=trendline_ideal,
+                    mode='lines',
+                    name=f'{vessel_name} - Ideal Trend',
+                    line=dict(color=colors['ideal_trend'], width=3),  # Modified
+                    hovertemplate='Ideal Power Trend: %{y:.2f} kW<extra></extra>',
+                    legendgroup=f'vessel_{vessel}',
+                    showlegend=True,
+                    opacity=0.8
+                ))
         
         fig2.update_layout(
             title='Power Over Time - All Vessels',
