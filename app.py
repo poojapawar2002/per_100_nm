@@ -84,6 +84,13 @@ for idx, (start, end) in enumerate(voyage_intervals):
     wavg_ideal_power = (voyage_df['ideal_power'] * voyage_df["ME1RunningHoursMinute"]).sum() / voyage_df["ME1RunningHoursMinute"].sum()
     total_running_hours = voyage_df["ME1RunningHoursMinute"].sum()/60
 
+    if total_DistanceOGAct<95:
+        scaling_factor = 100 / total_DistanceOGAct
+        total_FuelMassCons *= scaling_factor
+        total_ideal_foc *= scaling_factor
+
+    
+
     # Append to summary list
     voyage_summary.append({
         "Voyage #": idx + 1,
@@ -97,7 +104,7 @@ for idx, (start, end) in enumerate(voyage_intervals):
         "Average Wind Speed": round(avg_wind_speed, 2),
         "WAvg ME1ShaftPower": round(wavg_ME1ShaftPower, 2),
         "WAvg Ideal Power": round(wavg_ideal_power, 2),
-        "Total MEFuelMassCons": round(total_FuelMassCons, 2),
+        "Total MEFuelMassCons per 100nm": round(total_FuelMassCons, 2),
         "Total Ideal FOC": round(total_ideal_foc, 2),
         "Data Points": len(voyage_df)
     })
@@ -219,6 +226,7 @@ if selected_voyage_idx is not None and selected_voyage_idx < len(voyage_interval
         if sections_100_nm:
             sections_df = pd.DataFrame(sections_100_nm)
             st.write(f"#### {selected_voyage} - 100 nautical miles sections")
+            sections_df.rename(columns = {"MEFuelMassCons": "MEFuelMassCons per 100nm"},inplace=True)
             st.dataframe(sections_df)
 
 # NEW SECTION: Time Series Graphs for All Vessels
