@@ -27,6 +27,8 @@ vessel_names = {
 
 df = pd.read_csv("autolog_complete_input_ideal_power_foc_7000series_except1004.csv")
 
+df = df[df["IMO"]!=9967457]
+
 df["ideal_foc"] = df["ideal_foc_hr"]
 
 df['MeanDraft'] = (df['DraftAftTele'] + df['DraftFwdTele']) / 2
@@ -37,7 +39,7 @@ df["EndDateUTC"] = pd.to_datetime(df["EndDateUTC"], format="%d-%m-%Y %H:%M")
 df.sort_values(by=["IMO", "StartDateUTC"], inplace=True)
 
 # Select Vessel
-imos = list(voyage_dict.keys())
+imos = df["IMO"].unique().tolist()
 selected_imo = st.selectbox("Select Vessel", imos, format_func=lambda x: vessel_names.get(x, x))
 
 # Filter dataframe for that IMO
@@ -198,7 +200,7 @@ if selected_voyage_idx is not None and selected_voyage_idx < len(voyage_interval
                     scaling_factor = 100 / actual_distance
                     metrics["MEFuelMassCons"] = round(metrics["MEFuelMassCons"] * scaling_factor, 2)
                     metrics["Ideal FOC"] = round(metrics["Ideal FOC"] * scaling_factor, 2)
-                    metrics["DistanceOGAct"] = 100  # Set to 100 for incomplete section
+                    # metrics["DistanceOGAct"] = 100  # Set to 100 for incomplete section
                 
                 section_data = {f"Voyage {selected_voyage_num} - Section": f"{current_section}"}
                 section_data.update(metrics)
@@ -258,28 +260,7 @@ df = df[
 #     '#bcbd22',  # curry yellow-green
 #     '#17becf'   # blue-teal
 # ]
-# 16 visually distinct colors (8 for actual, 8 for ideal)
-color_palette = [
-    # Actual Colors (will be darkened for trendlines)
-    ('#4E79A7', '#A0CBE8'),  # Blue pair
-    ('#F28E2B', '#FFBE7D'),  # Orange pair
-    ('#E15759', '#FF9D9A'),  # Red pair
-    ('#76B7B2', '#59A14F'),  # Teal/Green pair
-    ('#EDC948', '#F1CE63'),  # Yellow pair
-    ('#B07AA1', '#D4A6C8'),  # Purple pair
-    ('#FF9DA7', '#9D7660'),  # Pink/Brown pair
-    ('#9C755F', '#BAB0AC'),  # Brown/Gray pair
-    
-    # Ideal Colors (will be lightened for trendlines)
-    ('#499894', '#86BCB6'),  # Green pair
-    ('#F1CE63', '#E8C4A4'),  # Gold pair
-    ('#79706E', '#BAB0AC'),  # Gray pair
-    ('#D37295', '#FABFD2'),  # Pink pair
-    ('#B07AA1', '#D4A6C8'),  # Purple pair
-    ('#A0CBE8', '#4E79A7'),  # Blue pair (reversed)
-    ('#F28E2B', '#FFBE7D'),  # Orange pair (reversed)
-    ('#59A14F', '#8CD17D')   # Green pair
-]
+
 
 # Process all vessels
 for vessel_idx, imo in enumerate(imos):
@@ -391,31 +372,46 @@ if all_sections_data:
         # Get unique vessels for color assignment
         unique_vessels = filtered_df['vessel_imo'].unique()
         
-        # Create color mappings for each vessel
-        # Each vessel will have:
-        # - Actual points: light color
-        # - Actual trendline: dark color
-        # - Ideal points: light complementary color
-        # - Ideal trendline: dark complementary color
-        # Create color mappings for each vessel
+    
+        color_palette = [
+    ("#1F77B4", "#AEC7E8"),  # Blue
+    ("#FF7F0E", "#FFBB78"),  # Orange
+    ("#2CA02C", "#98DF8A"),  # Green
+    ("#D62728", "#FF9896"),  # Red
+    ("#9467BD", "#C5B0D5"),  # Purple
+    ("#8C564B", "#C49C94"),  # Brown
+    ("#E377C2", "#F7B6D2"),  # Pink
+    ("#7F7F7F", "#C7C7C7"),  # Gray
+    ("#BCBD22", "#DBDB8D"),  # Olive
+    ("#17BECF", "#9EDAE5"),  # Cyan
+    ("#1A55FF", "#9BB8FF"),  # Bright Blue
+    ("#FF4C4C", "#FF9999"),  # Coral
+    ("#00B159", "#70E6B1"),  # Emerald
+    ("#F28500", "#FFC266"),  # Pumpkin
+    ("#8E44AD", "#D7BDE2"),  # Amethyst
+    ("#2C3E50", "#95A5A6")   # Midnight Blue (with Silver)
+]
+
+
         vessel_color_map = {}
         for i, vessel in enumerate(unique_vessels):
-            # Get both colors for this vessel
-            actual_color, ideal_color = color_palette[i % len(color_palette)]
+            base_color, light_color = color_palette[i % len(color_palette)]
             
             # Convert to RGB
             def hex_to_rgb(hex):
                 return tuple(int(hex.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
             
-            # Create variations (15% darker for trendlines, original for points)
+            base_rgb = hex_to_rgb(base_color)
+            light_rgb = hex_to_rgb(light_color)
+            
             vessel_color_map[vessel] = {
-                # Actual colors
-                'actual_point': f'rgb{hex_to_rgb(actual_color)}',
-                'actual_trend': f'rgb{tuple(max(0, int(c * 0.85)) for c in hex_to_rgb(actual_color))}',
+                # Actual elements
+                'actual_point': f'rgb{base_rgb}',
+                'actual_trend': f'rgb{tuple(max(0, int(c * 0.8)) for c in base_rgb)}',  # 20% darker
                 
-                # Ideal colors 
-                'ideal_point': f'rgb{hex_to_rgb(ideal_color)}',
-                'ideal_trend': f'rgb{tuple(min(255, int(c * 1.15)) for c in hex_to_rgb(ideal_color))}'
+                # Ideal elements (use light version)
+                'ideal_point': f'rgb{light_rgb}',
+                'ideal_trend': f'rgb{tuple(min(255, int(c * 1.2)) for c in light_rgb)}'  # 20% lighter
             }
         
         # Graph 1: Fuel Consumption (Actual vs Ideal)
