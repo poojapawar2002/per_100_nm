@@ -226,6 +226,20 @@ st.write("## Time Series Analysis - All Vessels Combined")
 
 # Add filters for the graphs
 st.write("### Filters for Graphs")
+
+available_imos = [imo for imo in df["IMO"].unique() if imo in vessel_names]
+available_imos.append(9967457)
+vessel_options = [vessel_names[imo] for imo in available_imos]
+
+selected_vessel_names = st.multiselect(
+    "Select Vessels",
+    options=vessel_options,
+    default=vessel_options[0],  # All vessels selected by default
+    help="Select one or more vessels to include in the analysis"
+)
+
+selected_imos = [imo for imo, name in vessel_names.items() if name in selected_vessel_names]
+
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
@@ -249,6 +263,7 @@ all_sections_data = []
 
 # Apply filters
 df = df[
+    (df["IMO"].isin(selected_imos)) &  
     (df['MeanDraft'] >= draft_min) & (df['MeanDraft'] <= draft_max) &
     (df['SpeedOG'] >= speedog_min) & (df['SpeedOG'] <= speedog_max) &
     (df['SpeedTW'] >= speedtw_min) & (df['SpeedTW'] <= speedtw_max) &
@@ -256,6 +271,7 @@ df = df[
 ].copy()
 
 additional_vessel_df = additional_vessel_df[
+    (additional_vessel_df["IMO"].isin(selected_imos)) &  # Assuming you want to filter for the additional vessel
     (additional_vessel_df['MeanDraft'] >= draft_min) & (additional_vessel_df['MeanDraft'] <= draft_max) &
     (additional_vessel_df['SpeedOG'] >= speedog_min) & (additional_vessel_df['SpeedOG'] <= speedog_max) &
     (additional_vessel_df['SpeedTW'] >= speedtw_min) & (additional_vessel_df['SpeedTW'] <= speedtw_max) &
@@ -278,101 +294,102 @@ additional_vessel_df = additional_vessel_df[
 
 
 # Process all vessels
-for vessel_idx, imo in enumerate(imos):
-    df_vessel = df[df['IMO'] == imo].copy()
-    vessel_voyage_intervals = voyage_dict.get(imo, [])
-    
-    for voyage_idx, (start, end) in enumerate(vessel_voyage_intervals):
-        # Filter data within the voyage time range
-        voyage_df = df_vessel[
-            (df_vessel['StartDateUTC'] >= start) & 
-            (df_vessel['EndDateUTC'] <= end)
-        ].copy().sort_values('StartDateUTC')
+if len(df)>0:
+    for vessel_idx, imo in enumerate(imos):
+        df_vessel = df[df['IMO'] == imo].copy()
+        vessel_voyage_intervals = voyage_dict.get(imo, [])
         
-        # Skip voyages with 0 distance
-        total_DistanceOGAct = voyage_df['DistanceOGAct'].sum()
-        if total_DistanceOGAct == 0:
-            continue
-        
-        # Calculate cumulative DistanceOGAct
-        voyage_df['CumulativeDistanceOGAct'] = voyage_df['DistanceOGAct'].cumsum()
-        
-        # Create 100-nm sections for this voyage
-        current_section = 1
-        section_start_idx = 0
-        
-        def calculate_section_metrics_for_graph(section_df, vessel_imo, voyage_num):
-            """Helper function to calculate section metrics for graphing"""
-            # section_df["MeanDraft"] = (section_df["DraftAftTele"] + section_df["DraftFwdTele"]) / 2
+        for voyage_idx, (start, end) in enumerate(vessel_voyage_intervals):
+            # Filter data within the voyage time range
+            voyage_df = df_vessel[
+                (df_vessel['StartDateUTC'] >= start) & 
+                (df_vessel['EndDateUTC'] <= end)
+            ].copy().sort_values('StartDateUTC')
             
-            section_FuelMassCons = (section_df['MEFuelMassCons']/1000).sum()
-            section_ideal_foc = section_df['ideal_foc'].sum()
-            section_wavg_ME1ShaftPower = (section_df['ME1ShaftPower'] * section_df["ME1RunningHoursMinute"]).sum() / section_df["ME1RunningHoursMinute"].sum()
-            section_wavg_ideal_power = (section_df['ideal_power'] * section_df["ME1RunningHoursMinute"]).sum() / section_df["ME1RunningHoursMinute"].sum()
-            section_start_time = section_df['StartDateUTC'].iloc[0]
-            section_end_time = section_df['EndDateUTC'].iloc[-1]
-            section_mid_time = section_start_time + (section_end_time - section_start_time) / 2
+            # Skip voyages with 0 distance
+            total_DistanceOGAct = voyage_df['DistanceOGAct'].sum()
+            if total_DistanceOGAct == 0:
+                continue
             
-            # Calculate averages for filtering
-            section_avg_draft = section_df["MeanDraft"].mean()
-            section_avg_speedog = section_df['SpeedOG'].mean()
-            section_avg_speedtw = section_df['calculated_stw'].mean()
-            section_avg_wind = section_df['TrueWindSpeedWP'].mean()
+            # Calculate cumulative DistanceOGAct
+            voyage_df['CumulativeDistanceOGAct'] = voyage_df['DistanceOGAct'].cumsum()
             
-            return {
-                "vessel_imo": vessel_imo,
-                "vessel_name": vessel_names.get(vessel_imo, vessel_imo),
-                "voyage_num": voyage_num,
-                "section_mid_time": section_mid_time,
-                "section_start_time": section_start_time,
-                "section_end_time": section_end_time,
-                "MEFuelMassCons_actual": section_FuelMassCons,
-                "MEFuelMassCons_ideal": section_ideal_foc,
-                "Power_actual": section_wavg_ME1ShaftPower,
-                "Power_ideal": section_wavg_ideal_power,
-                "section_num": current_section,
-                "avg_draft": section_avg_draft,
-                "avg_speedog": section_avg_speedog,
-                "avg_speedtw": section_avg_speedtw,
-                "avg_wind": section_avg_wind
-            }
-        
-        for i, row in voyage_df.iterrows():
-            cumulative_speed = row['CumulativeDistanceOGAct']
+            # Create 100-nm sections for this voyage
+            current_section = 1
+            section_start_idx = 0
             
-            # Check if we've completed a 100-nm section
-            if cumulative_speed >= (current_section * 100):
-                # Get data for this section
-                section_df = voyage_df.iloc[section_start_idx:voyage_df.index.get_loc(i)+1]
+            def calculate_section_metrics_for_graph(section_df, vessel_imo, voyage_num):
+                """Helper function to calculate section metrics for graphing"""
+                # section_df["MeanDraft"] = (section_df["DraftAftTele"] + section_df["DraftFwdTele"]) / 2
                 
-                # Calculate section metrics
-                metrics = calculate_section_metrics_for_graph(section_df, imo, voyage_idx + 1)
-                all_sections_data.append(metrics)
+                section_FuelMassCons = (section_df['MEFuelMassCons']/1000).sum()
+                section_ideal_foc = section_df['ideal_foc'].sum()
+                section_wavg_ME1ShaftPower = (section_df['ME1ShaftPower'] * section_df["ME1RunningHoursMinute"]).sum() / section_df["ME1RunningHoursMinute"].sum()
+                section_wavg_ideal_power = (section_df['ideal_power'] * section_df["ME1RunningHoursMinute"]).sum() / section_df["ME1RunningHoursMinute"].sum()
+                section_start_time = section_df['StartDateUTC'].iloc[0]
+                section_end_time = section_df['EndDateUTC'].iloc[-1]
+                section_mid_time = section_start_time + (section_end_time - section_start_time) / 2
                 
-                # Move to next section
-                current_section += 1
-                section_start_idx = voyage_df.index.get_loc(i) + 1
-        
-        # Handle remaining data (last incomplete section)
-        if section_start_idx < len(voyage_df):
-            remaining_df = voyage_df.iloc[section_start_idx:]
+                # Calculate averages for filtering
+                section_avg_draft = section_df["MeanDraft"].mean()
+                section_avg_speedog = section_df['SpeedOG'].mean()
+                section_avg_speedtw = section_df['calculated_stw'].mean()
+                section_avg_wind = section_df['TrueWindSpeedWP'].mean()
+                
+                return {
+                    "vessel_imo": vessel_imo,
+                    "vessel_name": vessel_names.get(vessel_imo, vessel_imo),
+                    "voyage_num": voyage_num,
+                    "section_mid_time": section_mid_time,
+                    "section_start_time": section_start_time,
+                    "section_end_time": section_end_time,
+                    "MEFuelMassCons_actual": section_FuelMassCons,
+                    "MEFuelMassCons_ideal": section_ideal_foc,
+                    "Power_actual": section_wavg_ME1ShaftPower,
+                    "Power_ideal": section_wavg_ideal_power,
+                    "section_num": current_section,
+                    "avg_draft": section_avg_draft,
+                    "avg_speedog": section_avg_speedog,
+                    "avg_speedtw": section_avg_speedtw,
+                    "avg_wind": section_avg_wind
+                }
             
-            if len(remaining_df) > 0:
-                # Calculate metrics for incomplete section
-                metrics = calculate_section_metrics_for_graph(remaining_df, imo, voyage_idx + 1)
+            for i, row in voyage_df.iterrows():
+                cumulative_speed = row['CumulativeDistanceOGAct']
                 
-                # Scale FOC values to 100nm for incomplete section
-                actual_distance = remaining_df['DistanceOGAct'].sum()
-                if actual_distance > 0:
-                    scaling_factor = 100 / actual_distance
-                    metrics["MEFuelMassCons_actual"] = metrics["MEFuelMassCons_actual"] * scaling_factor
-                    metrics["MEFuelMassCons_ideal"] = metrics["MEFuelMassCons_ideal"] * scaling_factor
+                # Check if we've completed a 100-nm section
+                if cumulative_speed >= (current_section * 100):
+                    # Get data for this section
+                    section_df = voyage_df.iloc[section_start_idx:voyage_df.index.get_loc(i)+1]
+                    
+                    # Calculate section metrics
+                    metrics = calculate_section_metrics_for_graph(section_df, imo, voyage_idx + 1)
+                    all_sections_data.append(metrics)
+                    
+                    # Move to next section
+                    current_section += 1
+                    section_start_idx = voyage_df.index.get_loc(i) + 1
+            
+            # Handle remaining data (last incomplete section)
+            if section_start_idx < len(voyage_df):
+                remaining_df = voyage_df.iloc[section_start_idx:]
                 
-                all_sections_data.append(metrics)
+                if len(remaining_df) > 0:
+                    # Calculate metrics for incomplete section
+                    metrics = calculate_section_metrics_for_graph(remaining_df, imo, voyage_idx + 1)
+                    
+                    # Scale FOC values to 100nm for incomplete section
+                    actual_distance = remaining_df['DistanceOGAct'].sum()
+                    if actual_distance > 0:
+                        scaling_factor = 100 / actual_distance
+                        metrics["MEFuelMassCons_actual"] = metrics["MEFuelMassCons_actual"] * scaling_factor
+                        metrics["MEFuelMassCons_ideal"] = metrics["MEFuelMassCons_ideal"] * scaling_factor
+                    
+                    all_sections_data.append(metrics)
 
 # Create graphs if we have data
 # Create graphs if we have data
-if all_sections_data:
+if all_sections_data or (9967457 in selected_imos):
     # Convert to DataFrame
     graph_df = pd.DataFrame(all_sections_data)
     
@@ -382,48 +399,49 @@ if all_sections_data:
     # Get voyage intervals for additional vessel
     additional_voyages = voyage_dict.get(9967457, [])
     
-    for voyage_idx, (start, end) in enumerate(additional_voyages):
-        # Filter data within voyage time range
-        voyage_df = additional_vessel_df[
-            (additional_vessel_df['StartDateUTC'] >= start) & 
-            (additional_vessel_df['EndDateUTC'] <= end)
-        ].copy().sort_values('StartDateUTC')
-        
-        if len(voyage_df) == 0:
-            continue
+    if len(additional_vessel_df) > 0 : 
+        for voyage_idx, (start, end) in enumerate(additional_voyages):
+            # Filter data within voyage time range
+            voyage_df = additional_vessel_df[
+                (additional_vessel_df['StartDateUTC'] >= start) & 
+                (additional_vessel_df['EndDateUTC'] <= end)
+            ].copy().sort_values('StartDateUTC')
             
-        # Calculate cumulative distance
-        voyage_df['CumulativeDistanceOGAct'] = voyage_df['DistanceOGAct'].cumsum()
-        
-        # Create sections (same logic as main vessels)
-        current_section = 1
-        section_start_idx = 0
-        
-        for i, row in voyage_df.iterrows():
-            if row['CumulativeDistanceOGAct'] >= (current_section * 100):
-                section_df = voyage_df.iloc[section_start_idx:voyage_df.index.get_loc(i)+1]
+            if len(voyage_df) == 0:
+                continue
                 
-                metrics = {
-                    "vessel_imo": 9967457,
-                    "vessel_name": vessel_names[9967457],
-                    "voyage_num": voyage_idx + 1,
-                    "section_mid_time": section_df['StartDateUTC'].iloc[0] + (section_df['EndDateUTC'].iloc[-1] - section_df['StartDateUTC'].iloc[0])/2,
-                    "section_start_time": section_df['StartDateUTC'].iloc[0],
-                    "section_end_time": section_df['EndDateUTC'].iloc[-1],
-                    "MEFuelMassCons_actual": (section_df['MEFuelMassCons']/1000).sum(),
-                    "MEFuelMassCons_ideal": np.nan,
-                    "Power_actual": (section_df['ME1ShaftPower'] * section_df["ME1RunningHoursMinute"]).sum() / section_df["ME1RunningHoursMinute"].sum(),
-                    "Power_ideal": np.nan,
-                    "section_num": current_section,
-                    "avg_draft": section_df["MeanDraft"].mean(),
-                    "avg_speedog": section_df['SpeedOG'].mean(),
-                    "avg_speedtw": np.nan,
-                    "avg_wind": section_df['TrueWindSpeedWP'].mean()
-                }
-                additional_sections.append(metrics)
-                
-                current_section += 1
-                section_start_idx = voyage_df.index.get_loc(i) + 1
+            # Calculate cumulative distance
+            voyage_df['CumulativeDistanceOGAct'] = voyage_df['DistanceOGAct'].cumsum()
+            
+            # Create sections (same logic as main vessels)
+            current_section = 1
+            section_start_idx = 0
+            
+            for i, row in voyage_df.iterrows():
+                if row['CumulativeDistanceOGAct'] >= (current_section * 100):
+                    section_df = voyage_df.iloc[section_start_idx:voyage_df.index.get_loc(i)+1]
+                    
+                    metrics = {
+                        "vessel_imo": 9967457,
+                        "vessel_name": vessel_names[9967457],
+                        "voyage_num": voyage_idx + 1,
+                        "section_mid_time": section_df['StartDateUTC'].iloc[0] + (section_df['EndDateUTC'].iloc[-1] - section_df['StartDateUTC'].iloc[0])/2,
+                        "section_start_time": section_df['StartDateUTC'].iloc[0],
+                        "section_end_time": section_df['EndDateUTC'].iloc[-1],
+                        "MEFuelMassCons_actual": (section_df['MEFuelMassCons']/1000).sum(),
+                        "MEFuelMassCons_ideal": np.nan,
+                        "Power_actual": (section_df['ME1ShaftPower'] * section_df["ME1RunningHoursMinute"]).sum() / section_df["ME1RunningHoursMinute"].sum(),
+                        "Power_ideal": np.nan,
+                        "section_num": current_section,
+                        "avg_draft": section_df["MeanDraft"].mean(),
+                        "avg_speedog": section_df['SpeedOG'].mean(),
+                        "avg_speedtw": np.nan,
+                        "avg_wind": section_df['TrueWindSpeedWP'].mean()
+                    }
+                    additional_sections.append(metrics)
+                    
+                    current_section += 1
+                    section_start_idx = voyage_df.index.get_loc(i) + 1
         
         # Handle incomplete last section
         # if section_start_idx < len(voyage_df):
@@ -439,8 +457,13 @@ if all_sections_data:
         #         additional_sections.append(metrics)
     
     # Combine with main data
-    combined_df = pd.concat([graph_df, pd.DataFrame(additional_sections)])
-    filtered_df = combined_df
+    if len(additional_sections) > 0 and len(graph_df) > 0:
+        combined_df = pd.concat([graph_df, pd.DataFrame(additional_sections)])
+        filtered_df = combined_df
+    elif len(additional_sections) > 0:
+        filtered_df = pd.DataFrame(additional_sections)
+    else:
+        filtered_df = graph_df
     
     # REST OF YOUR EXISTING GRAPHING CODE CONTINUES HERE
     # (th
