@@ -1,4 +1,5 @@
 import pickle
+from pymongo import MongoClient
 
 with open('voyage_dict.pkl', 'rb') as f:
     voyage_dict = pickle.load(f)
@@ -25,9 +26,33 @@ vessel_names = {
     9967445: "CARINA"
 }
 
-df = pd.read_csv("Updated_autolog_complete_input_ideal_power_foc_7000series_except1004.csv")
+@st.cache_data(ttl=600)  # cache for 10 minutes
+def load_data(collection_name):
+    # connect and query once
+    mongo_uri = st.secrets["mongo"]["uri"]
+    client = MongoClient(mongo_uri)
+    db = client["seaker_data"]
+    collection = db[collection_name]
 
-additional_vessel_df = pd.read_csv("autolog_input_with_dist_1004.csv")
+    data = list(collection.find())
+    df = pd.DataFrame(data)
+    df.drop(columns=['_id'], inplace=True)
+
+    return df
+
+df = load_data("Updated_autolog_complete_input_ideal_power_foc_7000series_except1004")
+
+
+
+# df = pd.read_csv("Updated_autolog_complete_input_ideal_power_foc_7000series_except1004.csv")
+
+df = df[["IMO", "StartDateUTC", "EndDateUTC", "DistanceOGAct", "MEFuelMassCons", "ME1ShaftPower","DraftAftTele", "DraftFwdTele", "SpeedOG", "SpeedTW", "TrueWindSpeedWP", "ME1RunningHoursMinute", "ideal_power", "ideal_foc_hr", "calculated_stw"]]
+
+
+additional_vessel_df = load_data("autolog_input_with_dist_1004")
+# additional_vessel_df = pd.read_csv("autolog_input_with_dist_1004.csv")
+
+additional_vessel_df = additional_vessel_df[["IMO", "StartDateUTC", "EndDateUTC", "DistanceOGAct", "MEFuelMassCons", "ME1ShaftPower","DraftAftTele", "DraftFwdTele", "SpeedOG", "SpeedTW", "TrueWindSpeedWP", "ME1RunningHoursMinute"]]
 
 additional_vessel_df["StartDateUTC"] = pd.to_datetime(additional_vessel_df["StartDateUTC"], format="%d-%m-%Y %H:%M")
 additional_vessel_df["EndDateUTC"] = pd.to_datetime(additional_vessel_df["EndDateUTC"], format="%d-%m-%Y %H:%M")
@@ -348,6 +373,8 @@ if len(df)>0:
                     "vessel_imo": vessel_imo,
                     "vessel_name": vessel_names.get(vessel_imo, vessel_imo),
                     "voyage_num": voyage_num,
+                    "section_total_running_hours": section_df["ME1RunningHoursMinute"].sum() / 60,
+                    "section_total_distance": section_df['DistanceOGAct'].sum(),
                     "section_mid_time": section_mid_time,
                     "section_start_time": section_start_time,
                     "section_end_time": section_end_time,
@@ -395,8 +422,11 @@ if len(df)>0:
                     
                     all_sections_data.append(metrics)
 
+        # Create graphs if we have data
 # Create graphs if we have data
-# Create graphs if we have data
+
+# pd.DataFrame(all_sections_data).to_csv("../Data/filtered_df_capella_dataused_in_foc100nm1.csv")
+
 if all_sections_data or (9967457 in selected_imos):
     # Convert to DataFrame
     graph_df = pd.DataFrame(all_sections_data)
@@ -433,6 +463,8 @@ if all_sections_data or (9967457 in selected_imos):
                         "vessel_imo": 9967457,
                         "vessel_name": vessel_names[9967457],
                         "voyage_num": voyage_idx + 1,
+                        "section_total_running_hours": section_df["ME1RunningHoursMinute"].sum() / 60,
+                        "section_total_distance": section_df['DistanceOGAct'].sum(),
                         "section_mid_time": section_df['StartDateUTC'].iloc[0] + (section_df['EndDateUTC'].iloc[-1] - section_df['StartDateUTC'].iloc[0])/2,
                         "section_start_time": section_df['StartDateUTC'].iloc[0],
                         "section_end_time": section_df['EndDateUTC'].iloc[-1],
@@ -533,6 +565,7 @@ if all_sections_data or (9967457 in selected_imos):
         # Graph 1: Fuel Consumption (Actual vs Ideal)
         fig1 = go.Figure()
         
+             
         # Add traces for each vessel - Actual FOC
         for vessel in unique_vessels:
             vessel_data = filtered_df[filtered_df['vessel_imo'] == vessel].sort_values('section_mid_time')
